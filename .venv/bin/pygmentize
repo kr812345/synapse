@@ -1,4 +1,4 @@
-#!/root/ai-os/.venv/bin/python3
+#!/root/synapse/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

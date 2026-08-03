@@ -29,7 +29,18 @@ class Task(BaseModel):
     status: str = "pending" # pending, agent_assigned, executing, validating, completed, failed
     assigned_agent: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    dag_id: Optional[str] = None
+    dependencies: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class DAG(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    requester: str
+    tasks: List[Task] = Field(default_factory=list)
+    status: str = "pending" # pending, executing, completed, failed
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 class Knowledge(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
