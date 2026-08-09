@@ -2,23 +2,26 @@ from shared.interfaces import Module
 from shared.models import Event, Knowledge
 from typing import Dict, List
 import logging
-from datetime import datetime, timezone
-import sqlite3
+from datetime import datetime
+import psycopg2
+import psycopg2.extras
 import json
 
 logger = logging.getLogger(__name__)
 
 class MemoryEngine(Module):
-    def __init__(self, db_path=":memory:"):
+    def __init__(self, db_url="dbname=synapse user=root"):
         self.kernel = None
-        self.db_path = db_path
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
+        self.db_url = db_url
+        self.conn = psycopg2.connect(self.db_url)
+        self.conn.autocommit = True
         self._init_db()
 
     def _init_db(self):
         cursor = self.conn.cursor()
         
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
         # events
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS events (
@@ -26,8 +29,8 @@ class MemoryEngine(Module):
             source TEXT,
             destination TEXT,
             event_type TEXT,
-            payload TEXT,
-            timestamp TEXT
+            payload JSONB,
+            timestamp TIMESTAMP
         )
         ''')
 
@@ -39,10 +42,10 @@ class MemoryEngine(Module):
             description TEXT,
             status TEXT,
             assigned_agent TEXT,
-            dependencies TEXT,
-            result_payload TEXT,
-            created_at TEXT,
-            completed_at TEXT
+            dependencies JSONB,
+            result_payload JSONB,
+            created_at TIMESTAMP,
+            completed_at TIMESTAMP
         )
         ''')
         
@@ -55,8 +58,8 @@ class MemoryEngine(Module):
             title TEXT,
             file_path TEXT,
             summary TEXT,
-            embedding TEXT,
-            created_at TEXT
+            embedding vector(1536),
+            created_at TIMESTAMP
         )
         ''')
         
@@ -69,9 +72,9 @@ class MemoryEngine(Module):
             confidence REAL,
             category TEXT,
             importance INTEGER,
-            embedding TEXT,
-            expiration TEXT,
-            created_at TEXT
+            embedding vector(1536),
+            expiration TIMESTAMP,
+            created_at TIMESTAMP
         )
         ''')
         
@@ -83,7 +86,7 @@ class MemoryEngine(Module):
             role TEXT,
             total_tasks_completed INTEGER,
             success_rate REAL,
-            last_active TEXT
+            last_active TIMESTAMP
         )
         ''')
 
@@ -93,10 +96,9 @@ class MemoryEngine(Module):
             id TEXT PRIMARY KEY,
             metric_name TEXT,
             value REAL,
-            timestamp TEXT
+            timestamp TIMESTAMP
         )
         ''')
-        self.conn.commit()
 
     @property
     def name(self) -> str:
@@ -115,7 +117,7 @@ class MemoryEngine(Module):
                 cursor.execute('''
                 INSERT INTO knowledge_graph 
                 (id, observation, source, confidence, category, importance, embedding, expiration, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ''', (
                     knowledge.id,
                     knowledge.observation,
@@ -124,10 +126,9 @@ class MemoryEngine(Module):
                     knowledge.category,
                     knowledge.importance,
                     json.dumps(knowledge.embedding) if knowledge.embedding else None,
-                    knowledge.expiration.isoformat() if knowledge.expiration else None,
-                    knowledge.created_at.isoformat()
+                    knowledge.expiration,
+                    knowledge.created_at
                 ))
-                self.conn.commit()
                 
                 logger.info(f"Stored knowledge: {knowledge.id} - {knowledge.observation[:30]}...")
                 
@@ -146,27 +147,35 @@ class MemoryEngine(Module):
             query = event.payload.get("query", "")
             results = []
             
-            cursor = self.conn.cursor()
-            # Simple substring search in sqlite for MVP
+            cursor = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # Simple substring search in Postgres for MVP (since pgvector requires embedding query, we fallback to LIKE)
             cursor.execute('''
             SELECT * FROM knowledge_graph 
-            WHERE (LOWER(observation) LIKE ? OR LOWER(category) LIKE ?)
+            WHERE (LOWER(observation) LIKE %s OR LOWER(category) LIKE %s)
             ''', (f'%{query.lower()}%', f'%{query.lower()}%'))
             
             rows = cursor.fetchall()
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()
             for row in rows:
                 if row['expiration']:
-                    # Handle if there's Z at the end or +00:00, etc.
-                    exp_str = row['expiration']
-                    if exp_str.endswith('Z'):
-                        exp_str = exp_str[:-1] + '+00:00'
-                    exp = datetime.fromisoformat(exp_str)
+                    # Assuming row['expiration'] is a datetime object in psycopg2
+                    exp = row['expiration']
                     if exp.tzinfo is None:
-                        exp = exp.replace(tzinfo=timezone.utc)
-                    if exp < now:
-                        continue
+                        if exp < now:
+                            continue
+                    else:
+                        from datetime import timezone
+                        if exp < datetime.now(timezone.utc):
+                            continue
                         
+                # Fix vector formatting from db to list if needed
+                emb = row['embedding']
+                if emb and isinstance(emb, str):
+                    # pgvector returns '[1,2,3]' string when not cast with register_vector
+                    import ast
+                    emb = ast.literal_eval(emb)
+                    
                 results.append({
                     "id": row['id'],
                     "observation": row['observation'],
@@ -174,9 +183,9 @@ class MemoryEngine(Module):
                     "confidence": row['confidence'],
                     "category": row['category'],
                     "importance": row['importance'],
-                    "embedding": json.loads(row['embedding']) if row['embedding'] else None,
-                    "expiration": row['expiration'],
-                    "created_at": row['created_at']
+                    "embedding": emb,
+                    "expiration": row['expiration'].isoformat() if row['expiration'] else None,
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else None
                 })
                     
             if self.kernel:
