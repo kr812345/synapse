@@ -2,7 +2,7 @@ from shared.interfaces import Module
 from shared.models import Event, Knowledge
 from typing import Dict, List
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import sqlite3
 import json
 
@@ -154,7 +154,7 @@ class MemoryEngine(Module):
             ''', (f'%{query.lower()}%', f'%{query.lower()}%'))
             
             rows = cursor.fetchall()
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             for row in rows:
                 if row['expiration']:
                     # Handle if there's Z at the end or +00:00, etc.
@@ -162,14 +162,10 @@ class MemoryEngine(Module):
                     if exp_str.endswith('Z'):
                         exp_str = exp_str[:-1] + '+00:00'
                     exp = datetime.fromisoformat(exp_str)
-                    # if the string has no tzinfo, assume it's UTC and make 'now' naive
                     if exp.tzinfo is None:
-                        if exp < now:
-                            continue
-                    else:
-                        from datetime import timezone
-                        if exp < datetime.now(timezone.utc):
-                            continue
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp < now:
+                        continue
                         
                 results.append({
                     "id": row['id'],

@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-08-06T07:00:28.227194+00:00",
+  "tier_selected": "all",
+  "marker_expression": "tier1 or tier2 or tier3 or tier4 or tier5 or e2e",
+  "status": "passed",
+  "exit_code": 0,
+  "execution_time_seconds": 9.46
+}
