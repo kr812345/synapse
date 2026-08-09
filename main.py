@@ -26,11 +26,13 @@ async def boot_os():
     from tools.library.github_tool import GitHubTool
     from tools.library.reddit_tool import RedditTool
     from tools.library.browser_tool import BrowserTool
+    from tools.library.email_tool import EmailTool
     
     tool_registry = ToolRegistry()
     tool_registry.register(GitHubTool())
     tool_registry.register(RedditTool())
     tool_registry.register(BrowserTool())
+    tool_registry.register(EmailTool())
     
     from api.server import bridge
     kernel.register_module(memory)

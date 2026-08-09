@@ -57,6 +57,7 @@ OPENAI_API_KEY=your_openai_key_here
 GITHUB_TOKEN=your_github_token
 REDDIT_CLIENT_ID=your_reddit_id
 REDDIT_CLIENT_SECRET=your_reddit_secret
+RESEND_API_KEY=your_resend_api_key
 ```
 
 ### 3. Database Setup
