@@ -36,7 +36,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-class WebSocketBridge:
+from shared.interfaces import Module
+
+class WebSocketBridge(Module):
     def __init__(self):
         self.kernel = None
 

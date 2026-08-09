@@ -41,11 +41,39 @@ async def boot_os():
     kernel.register_module(scheduler)
     kernel.register_module(bridge)
     
-    # Register departments
-    registry.register_agent(ResearchManager("rm_1", "Research Manager"))
-    registry.register_agent(EngineeringManager("eng_1", "Engineering Manager"))
-    registry.register_agent(MarketingManager("mkt_1", "Marketing Manager"))
-    registry.register_agent(PersonalManager("per_1", "Personal Manager"))
+    from departments.base import BaseDepartmentModule
+    from shared.models import AgentContract
+
+    # Instantiate managers
+    rm = ResearchManager("rm_1", "Research Manager")
+    eng = EngineeringManager("eng_1", "Engineering Manager")
+    mkt = MarketingManager("mkt_1", "Marketing Manager")
+    per = PersonalManager("per_1", "Personal Manager")
+
+    # Register as Kernel Modules (via BaseDepartmentModule)
+    kernel.register_module(BaseDepartmentModule(rm))
+    kernel.register_module(BaseDepartmentModule(eng))
+    kernel.register_module(BaseDepartmentModule(mkt))
+    kernel.register_module(BaseDepartmentModule(per))
+
+    # Register their Contracts to AgentRegistry
+    def make_contract(agent):
+        return AgentContract(
+            identity=agent.id,
+            department=agent.department,
+            goal=f"Manage {agent.department}",
+            responsibilities=["execute", "delegate"],
+            forbidden_actions=agent.forbidden_actions(),
+            allowed_tools=agent.allowed_tools(),
+            memory_access=agent.memory_access_level(),
+            output_schema={},
+            confidence_score=agent.confidence_score
+        )
+
+    registry.register_agent(make_contract(rm))
+    registry.register_agent(make_contract(eng))
+    registry.register_agent(make_contract(mkt))
+    registry.register_agent(make_contract(per))
     
     print("[SYSTEM] Synapse OS Booted Successfully.")
     return kernel, registry, scheduler
@@ -61,7 +89,7 @@ def execute(task: str):
         # Dispatch task to the system via the Event Bus
         task_event = Event(
             source="cli",
-            destination="task_scheduler",
+            destination="scheduler",
             event_type="scheduler.new_task",
             payload={"description": task, "task_id": "cli_task_1"}
         )
