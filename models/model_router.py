@@ -15,15 +15,15 @@ class ModelRouter(Module):
     def set_kernel(self, kernel):
         self.kernel = kernel
 
-    def decide_model(self, task_description: str) -> str:
-        # Dummy logic to determine complexity
-        words = len(task_description.split())
-        if words < 10:
-            return "Gemini Flash"
-        elif words < 50:
-            return "OpenRouter"
-        else:
-            return "Antigravity CLI"
+    async def decide_model(self, task_description: str) -> str:
+        # For this prototype we'll default to using litellm with a predefined model.
+        # But this could be dynamic depending on complexity.
+        return "gemini/gemini-1.5-pro"
+
+    def _get_agent_tools(self, agent: dict) -> list:
+        # In a real system we'd format the tools from tool_registry to OpenAI function calling format.
+        # Here we just return None for simplicity.
+        return None
 
     async def handle_event(self, event: Event) -> None:
         if event.event_type == "model.request_execution":
@@ -31,15 +31,28 @@ class ModelRouter(Module):
             task_description = event.payload.get("task_description", "")
             agent = event.payload.get("agent", {})
             
-            model = self.decide_model(task_description)
+            model = await self.decide_model(task_description)
             logger.info(f"Model Router chose {model} for task {task_id}")
             
-            # Simulate execution...
+            import litellm
+            try:
+                # Real implementation
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=[{"role": "user", "content": f"You are agent {agent.get('identity')}. Task: {task_description}"}],
+                    tools=self._get_agent_tools(agent)
+                )
+                output = response.choices[0].message.content
+                status = "success"
+            except Exception as e:
+                output = f"Error executing task: {str(e)}"
+                status = "error"
+            
             result = {
-                "status": "success",
+                "status": status,
                 "executed_by": model,
                 "agent": agent.get("identity"),
-                "output": f"Simulated output from {model} for task {task_id}"
+                "output": output
             }
             
             if self.kernel:
