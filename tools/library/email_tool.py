@@ -20,8 +20,8 @@ class EmailTool(ToolInterface):
             
             resend.api_key = api_key
             
-            # Default to the user's email if none is provided by the agent
-            to_email = recipient if recipient else "krishna.gusknp2023@ce.du.ac.in"
+            # Default to the registered Resend account email if none is provided
+            to_email = recipient if recipient else "jackwatsen0@gmail.com"
             
             params = {
                 "from": "Synapse OS <onboarding@resend.dev>",
