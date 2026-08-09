@@ -27,12 +27,14 @@ async def boot_os():
     from tools.library.reddit_tool import RedditTool
     from tools.library.browser_tool import BrowserTool
     from tools.library.email_tool import EmailTool
+    from tools.library.pdf_tool import PDFTool
     
     tool_registry = ToolRegistry()
     tool_registry.register(GitHubTool())
     tool_registry.register(RedditTool())
     tool_registry.register(BrowserTool())
     tool_registry.register(EmailTool())
+    tool_registry.register(PDFTool())
     
     from api.server import bridge
     kernel.register_module(memory)
@@ -86,20 +88,40 @@ def execute(task: str):
         
         print(f"[USER] Task: {task}")
         
+        from shared.interfaces import Module
+        
+        class CLIBridge(Module):
+            def __init__(self):
+                self.kernel = None
+                self.task_done = asyncio.Event()
+                
+            @property
+            def name(self) -> str:
+                return "cli"
+                
+            def set_kernel(self, kernel):
+                self.kernel = kernel
+                
+            async def handle_event(self, event: Event) -> None:
+                if event.destination == "cli" and event.event_type == "task.complete":
+                    print(f"\n[SYSTEM] Task Completed! Result:\n{event.payload.get('result')}\n")
+                    self.task_done.set()
+
+        cli_bridge = CLIBridge()
+        kernel.register_module(cli_bridge)
+
         # Dispatch task to the system via the Event Bus
         task_event = Event(
             source="cli",
             destination="scheduler",
-            event_type="scheduler.new_task",
-            payload={"description": task, "task_id": "cli_task_1"}
+            event_type="task.create",
+            payload={"task": {"id": "cli_task_1", "description": task, "requester": "cli"}}
         )
         await kernel.send_event(task_event)
         
-        # Wait a bit to simulate execution
-        for _ in range(5):
-            await asyncio.sleep(1)
-            print("[SYSTEM] OS Processing Event Bus...")
-            
+        print("[SYSTEM] OS Processing Event Bus... waiting for completion...")
+        await cli_bridge.task_done.wait()
+        
     asyncio.run(_run())
 
 @app.command()

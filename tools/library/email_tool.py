@@ -8,11 +8,13 @@ class EmailTool(ToolInterface):
     parameters = {
         "subject": "string",
         "body": "string", 
-        "recipient": "string (optional, defaults to user)"
+        "recipient": "string (optional, defaults to user)",
+        "attachment_path": "string (optional, absolute path to a file to attach)",
+        "attachment_name": "string (optional)"
     }
-    required_permissions = ["network_access", "email_access"]
+    required_permissions = ["network_access", "email_access", "file_system_read"]
 
-    async def execute(self, subject: str = "", body: str = "", recipient: str = "", **kwargs) -> dict:
+    async def execute(self, subject: str = "", body: str = "", recipient: str = "", attachment_path: str = "", attachment_name: str = "", **kwargs) -> dict:
         try:
             api_key = os.environ.get("RESEND_API_KEY")
             if not api_key:
@@ -29,6 +31,18 @@ class EmailTool(ToolInterface):
                 "subject": subject or "Synapse OS Document Delivery",
                 "html": f"<p>{body.replace(chr(10), '<br>')}</p>",
             }
+
+            if attachment_path and os.path.exists(attachment_path):
+                with open(attachment_path, "rb") as f:
+                    file_data = list(f.read())
+                
+                name = attachment_name or os.path.basename(attachment_path)
+                params["attachments"] = [
+                    {
+                        "filename": name,
+                        "content": file_data
+                    }
+                ]
 
             email = resend.Emails.send(params)
             
