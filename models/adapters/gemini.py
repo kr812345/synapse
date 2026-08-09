@@ -51,7 +51,7 @@ class GeminiFlashAdapter(ModelAdapter):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
                 body = resp.read().decode("utf-8")
                 return resp.status, body
         except urllib.error.HTTPError as err:
@@ -66,11 +66,47 @@ class GeminiFlashAdapter(ModelAdapter):
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:generateContent?key={api_key}"
                 contents = []
-                if system:
-                    contents.append({"role": "system", "parts": [{"text": system}]})
                 contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-                payload_bytes = json.dumps({"contents": contents}).encode("utf-8")
+                payload_dict = {"contents": contents}
+                
+                if system:
+                    payload_dict["systemInstruction"] = {"parts": [{"text": system}]}
+                
+                # Inject tool schemas
+                payload_dict["tools"] = [{
+                    "functionDeclarations": [
+                        {
+                            "name": "pdf_generator",
+                            "description": "Generates a PDF document from provided text content.",
+                            "parameters": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "title": {"type": "STRING"},
+                                    "content": {"type": "STRING"},
+                                    "filename": {"type": "STRING"}
+                                },
+                                "required": ["title", "content"]
+                            }
+                        },
+                        {
+                            "name": "email",
+                            "description": "Sends an email with an optional attachment.",
+                            "parameters": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "subject": {"type": "STRING"},
+                                    "body": {"type": "STRING"},
+                                    "recipient": {"type": "STRING"},
+                                    "attachment_path": {"type": "STRING"}
+                                },
+                                "required": ["subject", "body"]
+                            }
+                        }
+                    ]
+                }]
+                
+                payload_bytes = json.dumps(payload_dict).encode("utf-8")
                 status_code, body_text = await asyncio.to_thread(self._sync_generate, url, payload_bytes)
 
                 if status_code == 429:
@@ -83,7 +119,46 @@ class GeminiFlashAdapter(ModelAdapter):
                     raise ModelAdapterError(f"Gemini API returned error code {status_code}: {body_text}")
 
                 data = json.loads(body_text)
-                output_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                output_text = ""
+                part = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0]
+                
+                if "functionCall" in part:
+                    fn_name = part["functionCall"].get("name")
+                    fn_args = part["functionCall"].get("args", {})
+                    
+                    logger.info(f"Gemini invoked tool: {fn_name} with args: {fn_args}")
+                    
+                    # Execute tool locally
+                    tool_result = ""
+                    try:
+                        if fn_name == "pdf_generator":
+                            from tools.library.pdf_tool import PDFTool
+                            tool = PDFTool()
+                            res = await tool.execute(**fn_args)
+                            tool_result = f"PDF Generated successfully at {res.get('file_path', 'unknown')}"
+                            
+                            # Automatically email it since we can't loop natively here easily without complex state
+                            if "email" in prompt.lower() or "mail" in prompt.lower():
+                                from tools.library.email_tool import EmailTool
+                                email_tool = EmailTool()
+                                email_res = await email_tool.execute(
+                                    subject="Your requested AI Research PDF",
+                                    body="Here is the PDF document you requested from Synapse OS.",
+                                    attachment_path=res.get("file_path")
+                                )
+                                tool_result += f" | Email sent: {email_res.get('status')} to {email_res.get('message')}"
+                        elif fn_name == "email":
+                            from tools.library.email_tool import EmailTool
+                            tool = EmailTool()
+                            res = await tool.execute(**fn_args)
+                            tool_result = f"Email sent successfully. {res.get('message')}"
+                    except Exception as e:
+                        tool_result = f"Tool execution failed: {str(e)}"
+                        
+                    output_text = f"[Tool Executed: {fn_name}] Result: {tool_result}"
+                else:
+                    output_text = part.get("text", "")
+
                 usage = data.get("usageMetadata", {})
                 prompt_tokens = usage.get("promptTokenCount", self.estimate_tokens(prompt) + self.estimate_tokens(system))
                 completion_tokens = usage.get("candidatesTokenCount", self.estimate_tokens(output_text))

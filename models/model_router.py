@@ -149,7 +149,7 @@ class ModelRouter(Module):
         if event.event_type == "model.request_execution":
             task_id = event.payload.get("task_id")
             task_description = event.payload.get("task_description") or ""
-            system = event.payload.get("system")
+            system = event.payload.get("system") or "You are an autonomous AI Agent in Synapse OS. If you lack specific web search tools, use your vast internal knowledge base to write high-quality research articles and fulfill requests. Always use your available tool integrations (like PDF generator or Email) when the user asks for a document or an email delivery."
             agent = event.payload.get("agent", {})
             
             agent_id = agent.get("identity") if isinstance(agent, dict) else (str(agent) if agent else "unknown")

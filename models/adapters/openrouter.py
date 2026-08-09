@@ -29,7 +29,7 @@ class OpenRouterAdapter(ModelAdapter):
 
     @property
     def model_id(self) -> str:
-        return "openrouter/auto"
+        return "mistralai/mistral-7b-instruct:free"
 
     @property
     def tier(self) -> str:

@@ -12,6 +12,8 @@ from departments.marketing.manager import MarketingManager
 from departments.personal.manager import PersonalManager
 from shared.models import Event
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()
 
 app = typer.Typer(help="Synapse AI OS CLI")
 
