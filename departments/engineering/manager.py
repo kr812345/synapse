@@ -100,7 +100,7 @@ class EngineeringManager(Module, BaseAgent):
                     await self.kernel.send_event(failure_event)
 
     def allowed_tools(self) -> List[str]:
-        return ["jira", "github", "architecture_designer", "terminal"]
+        return ["jira", "github", "architecture_designer", "terminal", "file_read", "file_write", "file_edit"]
 
     def forbidden_actions(self) -> List[str]:
         return ["delete_repo", "drop_production_db"]

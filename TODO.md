@@ -24,3 +24,18 @@
 - [x] Register `MarketingManager` and `SocialWorker`.
 - [x] Register `PersonalManager` and `AssistantWorker`.
 - [x] Write unit tests for all Phase 6 departments.
+
+## Phase 7: The Advanced Synapse Ecosystem
+- [x] **Context Memory for CLI (`koko`)**:
+  - Integrate `MemoryEngine` sessions so `koko` CLI and `chat` retain conversation history.
+  - Pass a `session_id` payload into the OS Event Bus.
+- [x] **Agent File System Tools**:
+  - Add `FileRead`, `FileWrite`, and `FileEdit` capabilities to the `ToolRegistry`.
+  - Equip `EngineeringManager` and `BackendWorker` with these real tools.
+- [x] **Web CLI & Dashboard Integration**:
+  - Enhance the Next.js `dashboard/` to include a Web-based CLI emulator.
+  - Connect the Web CLI via WebSockets to stream OS events and the Avatar status in real-time.
+- [x] **Voice Mode (`koko listen`)**:
+  - Create a new `listen` command in the CLI.
+  - Use Python libraries to capture microphone audio and transcribe it to text (via Whisper or cloud API).
+  - Dispatch the transcribed text directly to the OS scheduler.

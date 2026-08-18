@@ -6,7 +6,7 @@ class AssistantWorker(BaseAgent):
         super().__init__(id=id, name=name, department="personal", role="assistant")
 
     def allowed_tools(self) -> List[str]:
-        return ["calendar", "email"]
+        return ["calendar", "email", "ppt_generator"]
 
     def forbidden_actions(self) -> List[str]:
         return ["delete_emails"]

@@ -1,12 +1,12 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from kernel.kernel import Kernel
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from shared.models import Event
 import asyncio
 import json
+from boot import boot_os
+from shared.interfaces import Module
 
-app = FastAPI()
-
-# A global reference for the websocket active connections
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -27,17 +27,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
-from shared.interfaces import Module
-
 class WebSocketBridge(Module):
     def __init__(self):
         self.kernel = None
@@ -53,5 +42,60 @@ class WebSocketBridge(Module):
         # We broadcast any event that passes through the OS so the dashboard can see it
         await manager.broadcast(event.model_dump_json())
 
-# Global bridge instance to be registered with the kernel in main.py
 bridge = WebSocketBridge()
+os_state = {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Boot the OS when the server starts
+    kernel, registry, scheduler = await boot_os()
+    kernel.register_module(bridge)
+    
+    os_state['kernel'] = kernel
+    os_state['registry'] = registry
+    os_state['scheduler'] = scheduler
+    print("[SERVER] Connected OS to API Server.")
+    yield
+    print("[SERVER] Shutting down OS...")
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # We can optionally handle incoming websocket messages here
+            pass
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+from pydantic import BaseModel
+class TaskRequest(BaseModel):
+    task: str
+
+@app.post("/api/task")
+async def submit_task(req: TaskRequest):
+    kernel = os_state.get('kernel')
+    if not kernel:
+        return {"status": "error", "message": "Kernel not initialized"}
+    
+    import uuid
+    task_id = f"web_task_{uuid.uuid4().hex[:8]}"
+    task_event = Event(
+        source="web_ui",
+        destination="scheduler",
+        event_type="task.create",
+        payload={"task": {"id": task_id, "description": req.task, "requester": "web_ui"}}
+    )
+    await kernel.send_event(task_event)
+    return {"status": "success", "task_id": task_id}

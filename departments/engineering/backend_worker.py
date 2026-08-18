@@ -17,7 +17,7 @@ class BackendWorker(BaseAgent):
         self.kernel = kernel
 
     def allowed_tools(self) -> List[str]:
-        return ["terminal", "ide", "git", "db_client"]
+        return ["terminal", "ide", "git", "db_client", "file_read", "file_write", "file_edit"]
 
     def forbidden_actions(self) -> List[str]:
         return ["delete_database", "drop_production_db", "push_to_main_without_pr"]

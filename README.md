@@ -21,10 +21,11 @@ If you are looking to build multi-agent architectures that require true collabor
 ## ✨ Key Features
 
 - **Event-Driven Architecture**: Agents communicate by publishing and subscribing to events over a central OS Kernel.
-- **Persistent Vector Memory**: Uses PostgreSQL and `pgvector` to store agent observations and build long-term memory knowledge graphs.
-- **Live React Dashboard**: A beautiful, glassmorphic Next.js/Vite dashboard that streams live agent activity, logs, and DAG execution hierarchies over WebSockets.
+- **Persistent Vector Memory**: Uses PostgreSQL and `pgvector` to store agent observations, build long-term memory knowledge graphs, and maintain **session-based Context Memory** for CLI chats.
+- **Live React Dashboard & Web CLI**: A beautiful, glassmorphic Next.js dashboard that streams live agent activity, logs, and DAG execution hierarchies over WebSockets, featuring a fully interactive Web CLI.
 - **Model Agnostic**: Uses `litellm` under the hood to route logic seamlessly to Gemini, OpenAI, Anthropic, or local models depending on task complexity.
-- **Standard Tool Library**: Comes out-of-the-box with real implementations for GitHub crawling, Reddit indexing, and automated Web Browsing.
+- **Standard Tool Library**: Comes out-of-the-box with real implementations for File System Manipulation (Read/Write/Edit), GitHub crawling, Reddit indexing, and automated Web Browsing.
+- **Voice Mode**: Native microphone integration allowing you to speak directly to the OS to dispatch tasks.
 
 ## 🚀 Getting Started
 
@@ -32,6 +33,7 @@ If you are looking to build multi-agent architectures that require true collabor
 - Python 3.10+
 - Node.js 18+ (For the Dashboard)
 - PostgreSQL 16+ (with the `pgvector` extension installed)
+- portaudio19-dev (Required for Voice Mode on Linux: `sudo apt install portaudio19-dev`)
 
 ### 1. Installation
 
@@ -43,6 +45,8 @@ cd synapse
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# Optional: Install voice dependencies
+pip install SpeechRecognition pyaudio
 ```
 
 ### 2. Environment Variables
@@ -67,12 +71,24 @@ The OS will automatically run migrations and create the `pgvector` extension and
 
 ### 4. Running the OS
 
-You can boot the OS Kernel and submit a task via the CLI:
+Synapse OS comes with a beautiful Typer/Rich CLI interface (`koko`).
+
+**One-Off Task Execution:**
 ```bash
-python main.py execute "Research AI startup ideas on Reddit and HN and draft a report."
+python main.py execute "Research AI startup ideas on Reddit and draft a report."
 ```
 
-To run the live WebSocket server that powers the dashboard:
+**Interactive Chat (with Context Memory):**
+```bash
+python main.py chat
+```
+
+**Voice Mode:**
+```bash
+python main.py listen
+```
+
+**Boot the API Server (for Web UI):**
 ```bash
 uvicorn api.server:app --reload
 ```

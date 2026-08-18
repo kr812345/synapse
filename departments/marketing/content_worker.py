@@ -6,7 +6,7 @@ class ContentWorker(BaseAgent):
         super().__init__(id=id, name=name, department="marketing", role="content_writer")
 
     def allowed_tools(self) -> List[str]:
-        return ["cms_editor", "seo_analyzer"]
+        return ["cms_editor", "seo_analyzer", "ppt_generator"]
 
     def forbidden_actions(self) -> List[str]:
         return ["publish_unapproved_copy"]

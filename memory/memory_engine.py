@@ -90,6 +90,17 @@ class MemoryEngine(Module):
         )
         ''')
 
+        # chat_sessions
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            role TEXT,
+            content TEXT,
+            timestamp TIMESTAMP
+        )
+        ''')
+
         # metrics
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS metrics (
@@ -194,5 +205,36 @@ class MemoryEngine(Module):
                     destination=event.source,
                     event_type="memory.query_results",
                     payload={"query": query, "results": results}
+                )
+                await self.kernel.send_event(resp)
+
+        elif event.event_type == "memory.store_chat":
+            session_id = event.payload.get("session_id")
+            role = event.payload.get("role")
+            content = event.payload.get("content")
+            
+            cursor = self.conn.cursor()
+            import uuid
+            cursor.execute('''
+            INSERT INTO chat_sessions (id, session_id, role, content, timestamp)
+            VALUES (%s, %s, %s, %s, %s)
+            ''', (str(uuid.uuid4()), session_id, role, content, datetime.utcnow()))
+            
+        elif event.event_type == "memory.get_chat_history":
+            session_id = event.payload.get("session_id")
+            cursor = self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            cursor.execute('''
+            SELECT role, content FROM chat_sessions 
+            WHERE session_id = %s ORDER BY timestamp ASC LIMIT 10
+            ''', (session_id,))
+            rows = cursor.fetchall()
+            history = [{"role": r["role"], "content": r["content"]} for r in rows]
+            
+            if self.kernel:
+                resp = Event(
+                    source=self.name,
+                    destination=event.source,
+                    event_type="memory.chat_history_result",
+                    payload={"session_id": session_id, "history": history}
                 )
                 await self.kernel.send_event(resp)
