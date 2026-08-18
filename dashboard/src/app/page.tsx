@@ -63,8 +63,7 @@ export default function Dashboard() {
     let reconnectTimer: NodeJS.Timeout;
 
     const connect = () => {
-      const host = window.location.hostname;
-      ws = new WebSocket(`ws://${host}:8000/ws`);
+      ws = new WebSocket(`wss://kokoapi.itskrishna.live/ws`);
       
       ws.onopen = () => {
         setConnected(true);
@@ -157,8 +156,7 @@ export default function Dashboard() {
 
     try {
       addLog('WebUI', 'task.submit', `Submitting: ${userInput}`);
-      const host = window.location.hostname;
-      const res = await fetch(`http://${host}:8000/api/task`, {
+      const res = await fetch(`https://kokoapi.itskrishna.live/api/task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task: userInput })
