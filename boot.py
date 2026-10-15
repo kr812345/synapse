@@ -1,4 +1,13 @@
+import os
 import asyncio
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+root_env = Path(__file__).resolve().parents[2] / ".env"
+if root_env.exists():
+    load_dotenv(root_env, override=False)
+
 from kernel.kernel import Kernel
 from memory.memory_engine import MemoryEngine
 from agents.registry import AgentRegistry
@@ -20,13 +29,15 @@ from tools.library.pdf_tool import PDFTool
 from tools.library.ppt_tool import PPTTool
 from tools.library.file_tools import FileRead, FileWrite, FileEdit
 
+
 async def boot_os():
     kernel = Kernel()
-    memory = MemoryEngine(db_url="dbname=synapse user=root")
+    db_url = os.environ.get("DATABASE_URL", "dbname=synapse user=root")
+    memory = MemoryEngine(db_url=db_url)
     registry = AgentRegistry()
     router = ModelRouter()
     scheduler = Scheduler()
-    
+
     tool_registry = ToolRegistry()
     tool_registry.register(GitHubTool())
     tool_registry.register(RedditTool())
@@ -37,12 +48,12 @@ async def boot_os():
     tool_registry.register(FileRead())
     tool_registry.register(FileWrite())
     tool_registry.register(FileEdit())
-    
+
     kernel.register_module(memory)
     kernel.register_module(registry)
     kernel.register_module(router)
     kernel.register_module(scheduler)
-    
+
     # Instantiate managers
     rm = ResearchManager("rm_1", "Research Manager")
     eng = EngineeringManager("eng_1", "Engineering Manager")
@@ -66,13 +77,13 @@ async def boot_os():
             allowed_tools=agent.allowed_tools(),
             memory_access=agent.memory_access_level(),
             output_schema={},
-            confidence_score=agent.confidence_score
+            confidence_score=agent.confidence_score,
         )
 
     registry.register_agent(make_contract(rm))
     registry.register_agent(make_contract(eng))
     registry.register_agent(make_contract(mkt))
     registry.register_agent(make_contract(per))
-    
+
     print("[SYSTEM] Synapse OS Booted Successfully.")
     return kernel, registry, scheduler

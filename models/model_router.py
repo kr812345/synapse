@@ -1,10 +1,10 @@
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from shared.interfaces import Module
 from shared.models import Event
 from models.cost_tracker import CostTracker
-from models.adapters.base import ModelAdapter, ModelAdapterError
+from models.adapters.base import BaseModelAdapter, ModelAdapter, ModelAdapterError
 from models.adapters.gemini import GeminiFlashAdapter
 from models.adapters.openrouter import OpenRouterAdapter
 from models.adapters.antigravity import AntigravityAdapter
@@ -13,13 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class ModelRouter(Module):
-    """Multi-tier LLM Model Router with heuristic selection, automatic fallback, and cost tracking."""
+    """Multi-tier LLM Model Router with heuristic selection, automatic fallback, SSE streaming, and cost tracking."""
 
     def __init__(self, adapters: Optional[List[ModelAdapter]] = None):
         self.kernel = None
         self.cost_tracker = CostTracker()
 
-        # Default adapter suite
         if adapters:
             self._adapter_list = adapters
         else:
@@ -29,7 +28,6 @@ class ModelRouter(Module):
                 AntigravityAdapter(),
             ]
 
-        # Index adapters by tier and display name / key
         self._tier_map: Dict[str, ModelAdapter] = {}
         self._name_map: Dict[str, ModelAdapter] = {}
         for adapter in self._adapter_list:
@@ -43,6 +41,14 @@ class ModelRouter(Module):
 
     def set_kernel(self, kernel: Any) -> None:
         self.kernel = kernel
+
+    def register_adapter(self, name: str, adapter: BaseModelAdapter) -> None:
+        """Register or override an adapter by name."""
+        self._name_map[name.lower()] = adapter  # type: ignore[assignment]
+        if hasattr(adapter, "tier"):
+            self._tier_map[getattr(adapter, "tier")] = adapter  # type: ignore[assignment]
+        if adapter not in self._adapter_list:
+            self._adapter_list.append(adapter)  # type: ignore[arg-type]
 
     def decide_model(self, task_description: Optional[str], payload: Optional[Dict[str, Any]] = None) -> ModelAdapter:
         """Determine appropriate ModelAdapter based on explicit hints, keyword heuristics, or prompt length."""
@@ -74,14 +80,14 @@ class ModelRouter(Module):
         desc_lower = task_description.lower()
         tier3_keywords = [
             "architecture", "design", "refactor", "security audit",
-            "optimization", "deep research", "root cause", "complex task"
+            "optimization", "deep research", "root cause", "complex task",
         ]
         tier2_keywords = [
             "code", "feature", "implement", "unit test",
-            "data model", "department", "search"
+            "data model", "department", "search",
         ]
         tier1_keywords = [
-            "summary", "format", "ping", "echo", "log", "simple", "classify"
+            "summary", "format", "ping", "echo", "log", "simple", "classify",
         ]
 
         if any(kw in desc_lower for kw in tier3_keywords) and "tier3" in self._tier_map:
@@ -91,7 +97,7 @@ class ModelRouter(Module):
         if any(kw in desc_lower for kw in tier2_keywords) and "tier2" in self._tier_map:
             return self._tier_map["tier2"]
 
-        # 3. Prompt word count fallback heuristics (backward compatibility)
+        # 3. Prompt word count fallback heuristics
         words = len(task_description.split())
         if words < 10 and "tier1" in self._tier_map:
             return self._tier_map["tier1"]
@@ -102,9 +108,24 @@ class ModelRouter(Module):
 
         return self._adapter_list[0]
 
-    def _get_fallback_chain(self, primary: ModelAdapter) -> List[ModelAdapter]:
+    def _resolve_primary(
+        self,
+        prompt: str,
+        preferred_adapter: Optional[Union[BaseModelAdapter, str]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> BaseModelAdapter:
+        if isinstance(preferred_adapter, BaseModelAdapter):
+            return preferred_adapter
+        if isinstance(preferred_adapter, str):
+            pref_lower = preferred_adapter.lower()
+            found = self._tier_map.get(pref_lower) or self._name_map.get(pref_lower)
+            if found:
+                return found
+        return self.decide_model(prompt, payload)
+
+    def _get_fallback_chain(self, primary: BaseModelAdapter) -> List[BaseModelAdapter]:
         """Construct ordered fallback chain starting with primary adapter."""
-        chain = [primary]
+        chain: List[BaseModelAdapter] = [primary]
         for adapter in self._adapter_list:
             if adapter not in chain:
                 chain.append(adapter)
@@ -114,44 +135,77 @@ class ModelRouter(Module):
         self,
         prompt: str,
         system: Optional[str] = None,
-        preferred_adapter: Optional[Union[ModelAdapter, str]] = None,
+        preferred_adapter: Optional[Union[BaseModelAdapter, str]] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """Execute model generation with automatic multi-tier fallback redundancy."""
-        primary: Optional[ModelAdapter] = None
-
-        if isinstance(preferred_adapter, ModelAdapter):
-            primary = preferred_adapter
-        elif isinstance(preferred_adapter, str):
-            pref_lower = preferred_adapter.lower()
-            primary = self._tier_map.get(pref_lower) or self._name_map.get(pref_lower)
-
-        if not primary:
-            primary = self.decide_model(prompt, kwargs.get("payload"))
-
+        primary = self._resolve_primary(prompt, preferred_adapter, kwargs.get("payload"))
         fallback_chain = self._get_fallback_chain(primary)
         last_exception: Optional[Exception] = None
 
         for adapter in fallback_chain:
             try:
-                logger.info(f"Attempting model execution via {adapter.name} ({adapter.tier})")
+                adapter_name = getattr(adapter, "name", adapter.__class__.__name__)
+                adapter_tier = getattr(adapter, "tier", "custom")
+                logger.info(f"Attempting model execution via {adapter_name} ({adapter_tier})")
                 res = await adapter.generate(prompt, system=system, **kwargs)
-                return res
+                if isinstance(res, dict):
+                    return res
+                return {
+                    "output": str(res),
+                    "model_name": adapter_name,
+                    "tier": adapter_tier,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "cost_usd": 0.0,
+                    "raw_response": None,
+                }
             except Exception as exc:
-                logger.warning(f"Model adapter {adapter.name} failed ({exc}). Cascading to next fallback adapter...")
+                adapter_name = getattr(adapter, "name", adapter.__class__.__name__)
+                logger.warning(f"Model adapter {adapter_name} failed ({exc}). Cascading to next fallback adapter...")
                 last_exception = exc
 
         logger.error("All model adapters in fallback chain failed.")
         raise RuntimeError(f"All model adapters failed to execute prompt. Last error: {last_exception}") from last_exception
+
+    async def stream_generate(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        preferred_adapter: Optional[Union[BaseModelAdapter, str]] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """Stream tokens from the preferred adapter, cascading through fallbacks on error."""
+        primary = self._resolve_primary(prompt, preferred_adapter, kwargs.get("payload"))
+        fallback_chain = self._get_fallback_chain(primary)
+        last_exception: Optional[Exception] = None
+
+        for adapter in fallback_chain:
+            try:
+                adapter_name = getattr(adapter, "name", adapter.__class__.__name__)
+                logger.info(f"Streaming model execution via {adapter_name}")
+                async for token in adapter.stream_generate(prompt, system=system, **kwargs):
+                    yield token
+                return
+            except Exception as exc:
+                adapter_name = getattr(adapter, "name", adapter.__class__.__name__)
+                logger.warning(f"Streaming adapter {adapter_name} failed ({exc}). Trying next fallback...")
+                last_exception = exc
+
+        logger.error("All streaming model adapters in fallback chain failed.")
+        raise RuntimeError(f"All streaming model adapters failed. Last error: {last_exception}") from last_exception
 
     async def handle_event(self, event: Event) -> None:
         """Handle incoming Event Bus events for model execution requests."""
         if event.event_type == "model.request_execution":
             task_id = event.payload.get("task_id")
             task_description = event.payload.get("task_description") or ""
-            system = event.payload.get("system") or "You are an autonomous AI Agent in Synapse OS. If you lack specific web search tools, use your vast internal knowledge base to write high-quality research articles and fulfill requests. Always use your available tool integrations (like PDF generator or Email) when the user asks for a document or an email delivery."
+            system = (
+                event.payload.get("system")
+                or "You are an autonomous AI Agent in Synapse OS. If you lack specific web search tools, use your vast internal knowledge base to write high-quality research articles and fulfill requests. Always use your available tool integrations (like PDF generator or Email) when the user asks for a document or an email delivery."
+            )
             agent = event.payload.get("agent", {})
-            
             agent_id = agent.get("identity") if isinstance(agent, dict) else (str(agent) if agent else "unknown")
 
             primary_adapter = self.decide_model(task_description, event.payload)
@@ -165,7 +219,6 @@ class ModelRouter(Module):
                     payload=event.payload,
                 )
 
-                # Record metrics in cost tracker
                 self.cost_tracker.record_usage(
                     task_id=task_id,
                     agent=agent_id,

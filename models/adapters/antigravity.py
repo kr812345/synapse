@@ -89,8 +89,12 @@ class AntigravityAdapter(ModelAdapter):
                 logger.warning(f"Antigravity CLI execution failed ({e}), using fallback simulation engine.")
 
         # Local deterministic execution engine
-        sys_prefix = f"[{system}] " if system else ""
-        output_text = f"Antigravity CLI deep architecture response for: {sys_prefix}{prompt}"
+        if system and "kiwi" in system.lower():
+            from persona.kiwi import generate_kiwi_fallback_reply
+            output_text = generate_kiwi_fallback_reply(prompt)
+        else:
+            sys_prefix = f"[{system}] " if system else ""
+            output_text = f"Antigravity CLI deep architecture response for: {sys_prefix}{prompt}"
 
         prompt_tokens = self.estimate_tokens(prompt) + self.estimate_tokens(system)
         completion_tokens = self.estimate_tokens(output_text)
@@ -107,3 +111,7 @@ class AntigravityAdapter(ModelAdapter):
             "cost_usd": cost_usd,
             "raw_response": {"provider": "antigravity", "mode": "simulation", "model": self.model_id},
         }
+
+
+AntigravityBridgeAdapter = AntigravityAdapter
+

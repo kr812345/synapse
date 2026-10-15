@@ -29,7 +29,7 @@ class OpenRouterAdapter(ModelAdapter):
 
     @property
     def model_id(self) -> str:
-        return "mistralai/mistral-7b-instruct:free"
+        return "openrouter/auto"
 
     @property
     def tier(self) -> str:
@@ -75,7 +75,8 @@ class OpenRouterAdapter(ModelAdapter):
                     "Content-Type": "application/json",
                 }
 
-                payload_bytes = json.dumps({"model": self.model_id, "messages": messages}).encode("utf-8")
+                target_model = os.environ.get("OPENROUTER_MODEL", self.model_id)
+                payload_bytes = json.dumps({"model": target_model, "messages": messages}).encode("utf-8")
                 status_code, body_text = await asyncio.to_thread(self._sync_generate, url, headers, payload_bytes)
 
                 if status_code == 429:
@@ -111,8 +112,12 @@ class OpenRouterAdapter(ModelAdapter):
                 logger.warning(f"OpenRouter API request failed ({e}), using fallback simulation engine.")
 
         # Local deterministic execution engine
-        sys_prefix = f"[{system}] " if system else ""
-        output_text = f"OpenRouter reasoning output for: {sys_prefix}{prompt}"
+        if system and "kiwi" in system.lower():
+            from persona.kiwi import generate_kiwi_fallback_reply
+            output_text = generate_kiwi_fallback_reply(prompt)
+        else:
+            sys_prefix = f"[{system}] " if system else ""
+            output_text = f"OpenRouter reasoning output for: {sys_prefix}{prompt}"
 
         prompt_tokens = self.estimate_tokens(prompt) + self.estimate_tokens(system)
         completion_tokens = self.estimate_tokens(output_text)

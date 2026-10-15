@@ -1,6 +1,7 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+import asyncio
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, AsyncIterator, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,34 @@ class AuthenticationError(ModelAdapterError):
     pass
 
 
-class ModelAdapter(ABC):
-    """Abstract Base Class for model execution adapters."""
+class BaseModelAdapter(ABC):
+    """Base interface for all LLM Adapters (Gemini, OpenRouter, Antigravity Bridge)."""
+
+    @abstractmethod
+    async def generate(self, prompt: str, system: Optional[str] = None, **kwargs: Any) -> Any:
+        """Generate a response from the model."""
+        pass
+
+    async def stream_generate(
+        self, prompt: str, system: Optional[str] = None, **kwargs: Any
+    ) -> AsyncIterator[str]:
+        """
+        Stream response tokens from the model.
+        Default implementation chunks the full response from `generate()`.
+        Subclasses with native SSE streaming should override this method.
+        """
+        result = await self.generate(prompt, system=system, **kwargs)
+        full_text = result.get("output", "") if isinstance(result, dict) else str(result)
+        words = full_text.split(" ")
+        for idx, word in enumerate(words):
+            token = word if idx == len(words) - 1 else word + " "
+            if token:
+                await asyncio.sleep(0.02)
+                yield token
+
+
+class ModelAdapter(BaseModelAdapter):
+    """Abstract Base Class for model execution adapters with cost/token metadata."""
 
     @property
     @abstractmethod
@@ -56,25 +83,6 @@ class ModelAdapter(ABC):
     @abstractmethod
     def cost_per_1k_completion(self) -> float:
         """Cost in USD per 1,000 completion tokens."""
-        pass
-
-    @abstractmethod
-    async def generate(self, prompt: str, system: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
-        """Generate output from the model provider given a prompt and optional system context.
-
-        Returns:
-            dict with structure:
-            {
-                "output": str,
-                "model_name": str,
-                "tier": str,
-                "prompt_tokens": int,
-                "completion_tokens": int,
-                "total_tokens": int,
-                "cost_usd": float,
-                "raw_response": dict | None
-            }
-        """
         pass
 
     def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:

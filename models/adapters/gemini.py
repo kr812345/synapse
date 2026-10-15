@@ -4,7 +4,8 @@ import asyncio
 import logging
 import urllib.request
 import urllib.error
-from typing import Any, Dict, Optional
+import httpx
+from typing import Any, AsyncIterator, Dict, Optional
 
 from models.adapters.base import (
     ModelAdapter,
@@ -13,6 +14,7 @@ from models.adapters.base import (
     ProviderUnavailableError,
     AuthenticationError,
 )
+from persona.kiwi import KIWI_SYSTEM_PROMPT, generate_kiwi_fallback_reply
 
 logger = logging.getLogger(__name__)
 
@@ -65,15 +67,12 @@ class GeminiFlashAdapter(ModelAdapter):
         if api_key:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_id}:generateContent?key={api_key}"
-                contents = []
-                contents.append({"role": "user", "parts": [{"text": prompt}]})
+                contents = [{"role": "user", "parts": [{"text": prompt}]}]
+                payload_dict: Dict[str, Any] = {"contents": contents}
 
-                payload_dict = {"contents": contents}
-                
                 if system:
                     payload_dict["systemInstruction"] = {"parts": [{"text": system}]}
-                
-                # Inject tool schemas
+
                 payload_dict["tools"] = [{
                     "functionDeclarations": [
                         {
@@ -84,10 +83,10 @@ class GeminiFlashAdapter(ModelAdapter):
                                 "properties": {
                                     "title": {"type": "STRING"},
                                     "content": {"type": "STRING"},
-                                    "filename": {"type": "STRING"}
+                                    "filename": {"type": "STRING"},
                                 },
-                                "required": ["title", "content"]
-                            }
+                                "required": ["title", "content"],
+                            },
                         },
                         {
                             "name": "email",
@@ -98,14 +97,14 @@ class GeminiFlashAdapter(ModelAdapter):
                                     "subject": {"type": "STRING"},
                                     "body": {"type": "STRING"},
                                     "recipient": {"type": "STRING"},
-                                    "attachment_path": {"type": "STRING"}
+                                    "attachment_path": {"type": "STRING"},
                                 },
-                                "required": ["subject", "body"]
-                            }
-                        }
+                                "required": ["subject", "body"],
+                            },
+                        },
                     ]
                 }]
-                
+
                 payload_bytes = json.dumps(payload_dict).encode("utf-8")
                 status_code, body_text = await asyncio.to_thread(self._sync_generate, url, payload_bytes)
 
@@ -121,14 +120,13 @@ class GeminiFlashAdapter(ModelAdapter):
                 data = json.loads(body_text)
                 output_text = ""
                 part = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0]
-                
+
                 if "functionCall" in part:
                     fn_name = part["functionCall"].get("name")
                     fn_args = part["functionCall"].get("args", {})
-                    
+
                     logger.info(f"Gemini invoked tool: {fn_name} with args: {fn_args}")
-                    
-                    # Execute tool locally
+
                     tool_result = ""
                     try:
                         if fn_name == "pdf_generator":
@@ -136,15 +134,14 @@ class GeminiFlashAdapter(ModelAdapter):
                             tool = PDFTool()
                             res = await tool.execute(**fn_args)
                             tool_result = f"PDF Generated successfully at {res.get('file_path', 'unknown')}"
-                            
-                            # Automatically email it since we can't loop natively here easily without complex state
+
                             if "email" in prompt.lower() or "mail" in prompt.lower():
                                 from tools.library.email_tool import EmailTool
                                 email_tool = EmailTool()
                                 email_res = await email_tool.execute(
                                     subject="Your requested AI Research PDF",
                                     body="Here is the PDF document you requested from Synapse OS.",
-                                    attachment_path=res.get("file_path")
+                                    attachment_path=res.get("file_path"),
                                 )
                                 tool_result += f" | Email sent: {email_res.get('status')} to {email_res.get('message')}"
                         elif fn_name == "email":
@@ -154,7 +151,7 @@ class GeminiFlashAdapter(ModelAdapter):
                             tool_result = f"Email sent successfully. {res.get('message')}"
                     except Exception as e:
                         tool_result = f"Tool execution failed: {str(e)}"
-                        
+
                     output_text = f"[Tool Executed: {fn_name}] Result: {tool_result}"
                 else:
                     output_text = part.get("text", "")
@@ -180,9 +177,12 @@ class GeminiFlashAdapter(ModelAdapter):
             except Exception as e:
                 logger.warning(f"Gemini API request failed ({e}), using fallback simulation engine.")
 
-        # Local deterministic execution engine
-        sys_prefix = f"[{system}] " if system else ""
-        output_text = f"Gemini Flash processed task: {sys_prefix}{prompt}"
+        # Local simulation engine: use conversational Kiwi persona when invoked with Kiwi system prompt
+        if system and "kiwi" in system.lower():
+            output_text = generate_kiwi_fallback_reply(prompt)
+        else:
+            sys_prefix = f"[{system}] " if system else ""
+            output_text = f"Gemini Flash processed task: {sys_prefix}{prompt}"
 
         prompt_tokens = self.estimate_tokens(prompt) + self.estimate_tokens(system)
         completion_tokens = self.estimate_tokens(output_text)
@@ -199,3 +199,63 @@ class GeminiFlashAdapter(ModelAdapter):
             "cost_usd": cost_usd,
             "raw_response": {"provider": "gemini", "mode": "simulation", "model": self.model_id},
         }
+
+    async def stream_generate(
+        self, prompt: str, system: Optional[str] = None, **kwargs: Any
+    ) -> AsyncIterator[str]:
+        """Stream tokens via Gemini SSE endpoint or progressive simulation chunks."""
+        api_key = kwargs.get("api_key") or self._api_key
+
+        if api_key:
+            stream_url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{self.model_id}:streamGenerateContent?alt=sse&key={api_key}"
+            )
+            payload_dict: Dict[str, Any] = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}]
+            }
+            if system:
+                payload_dict["systemInstruction"] = {"parts": [{"text": system}]}
+
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", stream_url, json=payload_dict, timeout=60.0) as resp:
+                    if resp.status_code == 429:
+                        raise RateLimitError("Gemini API rate limit exceeded")
+                    elif resp.status_code in (401, 403):
+                        raise AuthenticationError("Invalid or missing Gemini API key")
+                    elif resp.status_code >= 500:
+                        raise ProviderUnavailableError(f"Gemini API server error ({resp.status_code})")
+                    elif resp.status_code != 200:
+                        body = await resp.aread()
+                        raise ModelAdapterError(
+                            f"Gemini API returned error code {resp.status_code}: {body.decode('utf-8', errors='replace')}"
+                        )
+
+                    async for line in resp.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        raw = line[len("data:"):].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            chunk = json.loads(raw)
+                            candidates = chunk.get("candidates", [])
+                            if candidates:
+                                parts = candidates[0].get("content", {}).get("parts", [])
+                                for part in parts:
+                                    text = part.get("text", "")
+                                    if text:
+                                        yield text
+                        except json.JSONDecodeError:
+                            continue
+            return
+
+        # Simulation mode streaming
+        result = await self.generate(prompt, system=system or KIWI_SYSTEM_PROMPT, **kwargs)
+        full_text = result.get("output", "") if isinstance(result, dict) else str(result)
+        words = full_text.split(" ")
+        for idx, word in enumerate(words):
+            token = word if idx == len(words) - 1 else word + " "
+            if token:
+                await asyncio.sleep(0.02)
+                yield token
