@@ -7,6 +7,7 @@ from persona.kiwi import (
     build_chat_prompt,
     generate_kiwi_fallback_reply,
     generate_pip_fallback_reply,
+    uses_persona_fallback,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "build_chat_prompt",
     "generate_kiwi_fallback_reply",
     "generate_pip_fallback_reply",
+    "uses_persona_fallback",
 ]

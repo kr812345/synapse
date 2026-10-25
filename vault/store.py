@@ -39,7 +39,8 @@ class VaultStore:
     ):
         self.store_path = store_path or os.environ.get("PIP_VAULT_PATH", DEFAULT_STORE)
         self.key_path = key_path or os.environ.get("PIP_VAULT_KEY_FILE", DEFAULT_KEY)
-        self.allow_create = allow_create
+        env_create = os.environ.get("PIP_VAULT_ALLOW_CREATE", "").lower() in {"1", "true", "yes"}
+        self.allow_create = allow_create or env_create
 
     def _load_key(self) -> bytes:
         if not os.path.exists(self.key_path):

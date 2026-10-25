@@ -367,6 +367,10 @@ async def test_adapter_simulation_fallback_when_unconfigured():
     assert "Gemini Flash processed task" in res_g["output"]
     assert res_g["raw_response"]["mode"] == "simulation"
 
+    from persona.kiwi import PIP_SYSTEM_PROMPT
+    res_pip = await gemini.generate("user: hi\npip:", system=PIP_SYSTEM_PROMPT)
+    assert res_pip["output"].startswith("Hi, I'm Pip")
+
     # OpenRouter
     res_o = await openrouter.generate("Coding task", system="sys")
     assert "OpenRouter reasoning output" in res_o["output"]

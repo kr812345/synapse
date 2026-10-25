@@ -35,6 +35,14 @@ Accuracy beats charm. If a tool fails, say so and give the next step.
 KIWI_SYSTEM_PROMPT = PIP_SYSTEM_PROMPT
 
 
+def uses_persona_fallback(system: Optional[str]) -> bool:
+    """True when the offline adapters should answer in Pip's voice."""
+    if not system:
+        return False
+    lowered = system.lower()
+    return "you are pip" in lowered or "kiwi" in lowered
+
+
 def build_chat_prompt(
     user_message: str,
     history: Optional[list] = None,

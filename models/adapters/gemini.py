@@ -14,7 +14,7 @@ from models.adapters.base import (
     ProviderUnavailableError,
     AuthenticationError,
 )
-from persona.kiwi import KIWI_SYSTEM_PROMPT, generate_kiwi_fallback_reply
+from persona.kiwi import KIWI_SYSTEM_PROMPT, generate_kiwi_fallback_reply, uses_persona_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class GeminiFlashAdapter(ModelAdapter):
                 logger.warning(f"Gemini API request failed ({e}), using fallback simulation engine.")
 
         # Local simulation engine: use conversational Kiwi persona when invoked with Kiwi system prompt
-        if system and "kiwi" in system.lower():
+        if uses_persona_fallback(system):
             output_text = generate_kiwi_fallback_reply(prompt)
         else:
             sys_prefix = f"[{system}] " if system else ""

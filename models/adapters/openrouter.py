@@ -112,8 +112,8 @@ class OpenRouterAdapter(ModelAdapter):
                 logger.warning(f"OpenRouter API request failed ({e}), using fallback simulation engine.")
 
         # Local deterministic execution engine
-        if system and "kiwi" in system.lower():
-            from persona.kiwi import generate_kiwi_fallback_reply
+        from persona.kiwi import generate_kiwi_fallback_reply, uses_persona_fallback
+        if uses_persona_fallback(system):
             output_text = generate_kiwi_fallback_reply(prompt)
         else:
             sys_prefix = f"[{system}] " if system else ""
