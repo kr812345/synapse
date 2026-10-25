@@ -4,10 +4,17 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Union
 from shared.interfaces import Module
 from shared.models import Event
 from models.cost_tracker import CostTracker
+from models.selection import read_default
 from models.adapters.base import BaseModelAdapter, ModelAdapter, ModelAdapterError
 from models.adapters.gemini import GeminiFlashAdapter
 from models.adapters.openrouter import OpenRouterAdapter
 from models.adapters.antigravity import AntigravityAdapter
+from models.adapters.cli_agents import (
+    AnthropicApiAdapter,
+    ClaudeCodeAdapter,
+    CursorCliAdapter,
+    OpenAIApiAdapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +33,10 @@ class ModelRouter(Module):
                 GeminiFlashAdapter(),
                 OpenRouterAdapter(),
                 AntigravityAdapter(),
+                AnthropicApiAdapter(),
+                OpenAIApiAdapter(),
+                ClaudeCodeAdapter(),
+                CursorCliAdapter(),
             ]
 
         self._tier_map: Dict[str, ModelAdapter] = {}
@@ -76,7 +87,17 @@ class ModelRouter(Module):
             if "antigravity" in hint_lower or "tier3" in hint_lower:
                 return self._tier_map.get("tier3", self._adapter_list[-1])
 
-        # 2. Check keyword heuristics in task description
+        # 2. Saved default wins over keyword guesses. A task can still override
+        #    with an explicit model hint above.
+        saved = read_default()
+        if saved:
+            saved_lower = saved.lower()
+            if saved_lower in self._name_map:
+                return self._name_map[saved_lower]
+            if saved_lower in self._tier_map:
+                return self._tier_map[saved_lower]
+
+        # 3. Check keyword heuristics in task description
         desc_lower = task_description.lower()
         tier3_keywords = [
             "architecture", "design", "refactor", "security audit",

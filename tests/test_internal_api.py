@@ -47,7 +47,7 @@ async def test_internal_chat_endpoint():
     assert data["reply"] == data["response"]
     assert data["conversation_id"] == "test_session_1"
     assert data["session_id"] == "test_session_1"
-    assert "[ ^ _ ^ ]" in data["response"]
+    assert "Pip" in data["response"]
 
 
 @pytest.mark.asyncio
@@ -82,8 +82,8 @@ async def test_internal_chat_kernel_not_ready_returns_503():
 
 
 def test_kiwi_persona_prompt_builder():
-    assert KIWI_PERSONA["name"] == "Kiwi"
-    assert "[ ^ _ ^ ]" in KIWI_SYSTEM_PROMPT
+    assert KIWI_PERSONA["name"] == "Pip"
+    assert "You are Pip" in KIWI_SYSTEM_PROMPT
     prompt = build_chat_prompt(
         "let's test latency",
         history=[{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hey!"}],
@@ -91,5 +91,5 @@ def test_kiwi_persona_prompt_builder():
     )
     assert "device=mobile" in prompt
     assert "user: hi" in prompt
-    assert "kiwi: hey!" in prompt
+    assert "pip: hey!" in prompt
     assert "user: let's test latency" in prompt

@@ -249,6 +249,73 @@ async def internal_chat_stream(req: InternalChatRequest):
     )
 
 
+_notifications: List[dict] = []
+
+
+class JobFireRequest(BaseModel):
+    job: Dict[str, Any]
+
+
+class ApprovalDecision(BaseModel):
+    allow: bool
+
+
+@app.get("/internal/approvals")
+async def list_approvals():
+    from vault.store import VaultStore
+
+    return {"approvals": VaultStore().pending_approvals()}
+
+
+@app.post("/internal/approvals/{approval_id}")
+async def decide_approval(approval_id: str, body: ApprovalDecision):
+    from vault.store import VaultError, VaultStore
+
+    try:
+        record = VaultStore().resolve_approval(approval_id, body.allow)
+    except VaultError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"approval": record}
+
+
+@app.get("/internal/notifications")
+async def list_notifications():
+    rows = list(_notifications)
+    _notifications.clear()
+    return {"notifications": rows}
+
+
+@app.post("/internal/jobs/fire")
+async def fire_job(req: JobFireRequest):
+    """Called by pip-cron. Notify the phone, or open a page, and record the state."""
+    job = req.job or {}
+    payload = job.get("payload") or {}
+    name = job.get("name", "")
+    if payload.get("type") == "notify":
+        note = {
+            "job": name,
+            "message": payload.get("message", ""),
+            "state": "nudge",
+        }
+        _notifications.append(note)
+        return {"status": "ok", "state": "nudge"}
+    if payload.get("tool") == "browser_open":
+        from tools.library.desktop import BrowserOpen
+
+        result = await BrowserOpen().execute(url=payload.get("url", ""))
+        state = "done" if result.get("status") == "ok" else "blocked"
+        _notifications.append(
+            {
+                "job": name,
+                "message": payload.get("url", ""),
+                "state": state,
+            }
+        )
+        return {"status": "ok", "state": state, "result": result}
+    _notifications.append({"job": name, "message": "", "state": "working"})
+    return {"status": "ok", "state": "working"}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)

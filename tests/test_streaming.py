@@ -66,7 +66,7 @@ async def test_internal_chat_stream_sse():
     assert len(token_events) > 1
     assert len(done_events) == 1
     full_reply = "".join(token_events)
-    assert "[ ^ _ ^ ]" in full_reply
+    assert "Pip" in full_reply
 
 
 @pytest.mark.asyncio
