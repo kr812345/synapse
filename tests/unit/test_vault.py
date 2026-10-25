@@ -15,8 +15,9 @@ def test_locked_vault_does_not_create_a_key(isolate_pip_files):
     assert not (isolate_pip_files / "vault.key").exists()
 
 
-def test_allow_create_env_makes_a_key_and_hides_the_value(isolate_pip_files, monkeypatch):
-    monkeypatch.setenv("PIP_VAULT_ALLOW_CREATE", "yes")
+@pytest.mark.parametrize("flag", ["1", "true", "yes"])
+def test_allow_create_env_makes_a_key_and_hides_the_value(isolate_pip_files, monkeypatch, flag):
+    monkeypatch.setenv("PIP_VAULT_ALLOW_CREATE", flag)
     store = VaultStore()
     store.put("browser-login", "s3cret-value")
     key = (isolate_pip_files / "vault.key").read_bytes()

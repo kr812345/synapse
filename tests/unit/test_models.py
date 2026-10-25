@@ -12,9 +12,15 @@ async def test_models_use_rejects_blank_unknown_and_uninstalled(isolate_pip_file
     unknown = await ModelsUse().execute(model="not-a-model")
     assert unknown["status"] == "error"
     assert "unknown model" in unknown["message"]
+    listed = await ModelsList().execute()
+    by_id = {row["id"]: row for row in listed["models"]}
+    assert by_id["anthropic-api"]["installed"] is False
+    assert by_id["gemini-2.5-flash"]["installed"] is True
     missing = await ModelsUse().execute(model="anthropic-api")
     assert missing["status"] == "error"
     assert "not installed" in missing["message"]
+    again = await ModelsList().execute()
+    assert again["default"] in (None, "")
 
 
 async def test_models_use_selects_gemini_and_list_marks_it(isolate_pip_files):

@@ -30,11 +30,38 @@ def isolate_pip_files(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-async def client(isolate_pip_files):
+async def client(isolate_pip_files, monkeypatch):
     from api import server
     from boot import boot_os
 
+    # Importing the brain loads .env and can put a model key back.
+    for name in (
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "USE_ANTIGRAVITY_CLI",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "host=127.0.0.1 port=1 dbname=pip_absent user=pip connect_timeout=1",
+    )
+    monkeypatch.setenv("PIP_WORK_ROOT", str(isolate_pip_files / "work"))
+    monkeypatch.setenv("PIP_VAULT_PATH", str(isolate_pip_files / "vault.json"))
+    monkeypatch.setenv("PIP_VAULT_KEY_FILE", str(isolate_pip_files / "vault.key"))
+    monkeypatch.setenv("PIP_VAULT_ALLOW_CREATE", "1")
+    monkeypatch.setenv("PIP_JOBS_PATH", str(isolate_pip_files / "jobs.sqlite"))
+    monkeypatch.setenv("PIP_MODEL_CONFIG", str(isolate_pip_files / "model.json"))
+    monkeypatch.setenv("PIP_DESKTOP_DRIVER", "fake")
+    monkeypatch.delenv("PIP_VAULT_SOCK", raising=False)
+
     kernel, registry, scheduler = await boot_os()
+    router = kernel.get_module("model_router")
+    if router is not None:
+        for adapter in getattr(router, "_adapter_list", []):
+            if hasattr(adapter, "_api_key"):
+                adapter._api_key = None
     server.kernel = kernel
     server.os_state["kernel"] = kernel
     server.os_state["registry"] = registry

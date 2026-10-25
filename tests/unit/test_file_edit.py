@@ -18,6 +18,14 @@ async def test_file_edit_reports_a_missing_snippet(isolate_pip_files):
     assert missing.startswith("Error: Target text not found")
 
 
+async def test_file_edit_refuses_dotenv_inside_the_workspace(isolate_pip_files):
+    env_file = isolate_pip_files / "work" / ".env"
+    env_file.write_text("TOKEN=1", encoding="utf-8")
+    refused = await FileEdit().execute(path=".env", target="TOKEN", replacement="NO")
+    assert refused.startswith("Error:")
+    assert env_file.read_text(encoding="utf-8") == "TOKEN=1"
+
+
 async def test_file_edit_refuses_a_path_outside_the_workspace(isolate_pip_files):
     outside = isolate_pip_files / "outside.txt"
     outside.write_text("hidden", encoding="utf-8")
